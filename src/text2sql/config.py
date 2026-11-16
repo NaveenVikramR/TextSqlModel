@@ -47,6 +47,39 @@ def apply_overrides(cfg: dict, overrides: list[str] | None) -> dict:
     return cfg
 
 
+def adapt_training_args(train_kwargs: dict, accepted: set[str]) -> tuple[dict, list[str]]:
+    """Make SFTConfig kwargs work across transformers/TRL versions.
+
+    `accepted` is the set of field names the installed SFTConfig takes. Returns the
+    adapted kwargs and a list of human-readable notes about what was changed.
+    Raises ConfigError listing *all* unsupported keys at once.
+    """
+    kwargs = dict(train_kwargs)
+    notes: list[str] = []
+
+    # transformers v5 removed `warmup_ratio`; `warmup_steps` accepts a float in [0, 1) as a ratio.
+    if "warmup_ratio" in kwargs and "warmup_ratio" not in accepted:
+        ratio = kwargs.pop("warmup_ratio")
+        if "warmup_steps" in kwargs:
+            notes.append("dropped warmup_ratio (warmup_steps is already set)")
+        else:
+            kwargs["warmup_steps"] = ratio
+            notes.append(f"warmup_ratio={ratio} -> warmup_steps={ratio} (fraction of total steps)")
+
+    # Older transformers spelled eval_strategy as evaluation_strategy.
+    if "eval_strategy" in kwargs and "eval_strategy" not in accepted and "evaluation_strategy" in accepted:
+        kwargs["evaluation_strategy"] = kwargs.pop("eval_strategy")
+        notes.append("eval_strategy -> evaluation_strategy")
+
+    unknown = sorted(k for k in kwargs if k not in accepted)
+    if unknown:
+        raise ConfigError(
+            f"the installed trl/transformers SFTConfig does not accept: {unknown}. "
+            "Rename or remove them in the YAML (or via --set)."
+        )
+    return kwargs, notes
+
+
 def validate_config(cfg: dict) -> None:
     if not isinstance(cfg, dict):
         raise ConfigError("config must be a mapping")

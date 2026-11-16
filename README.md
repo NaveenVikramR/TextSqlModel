@@ -143,9 +143,14 @@ Copy the predictions file back and score it on CPU with `scripts/evaluate.py`.
 
 ## Results
 
-_To be filled in after the first training run._
+Test split: 600 rows (500 single-table, 100 multi-table). Greedy decoding, same prompt as training.
 
-| Model | Valid-SQL % | Exact-match % |
+| Model | Valid-SQL % (all / single / multi) | Exact-match % (all / single / multi) |
 |---|---|---|
-| Llama-3.2-3B-Instruct (base, zero-shot) | – | – |
+| Llama-3.2-3B-Instruct (base, zero-shot) | 85.17 / 84.60 / 88.00 | 33.83 / 40.60 / 0.00 |
 | Llama-3.2-3B-Instruct + QLoRA | – | – |
+
+The base model already writes mostly runnable SQL, but it gets **zero** multi-table queries exactly
+right. Valid SQL with no exact match points at style, not correctness: the dataset's gold queries
+use `T1`/`T2` aliases and particular join forms, which a zero-shot model has no reason to copy.
+That's what fine-tuning should teach, and why execution accuracy (see CLAUDE.md TODO) matters.

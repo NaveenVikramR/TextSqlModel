@@ -69,7 +69,7 @@ Local venv: `.venv/` (Windows: `.venv\Scripts\python -m pytest`). Only `requirem
 - [x] `num_tables` per row; eval reports single- vs multi-table
 - [x] `notebooks/colab_runner.ipynb` (clone → install → login → baseline → smoke train → adapter preds → download)
 - [ ] Push private dataset to the Hub (needed before the Colab notebook can run)
-- [ ] Baseline zero-shot eval of the base model
+- [x] Baseline zero-shot eval (Colab): valid 85.17%, EM 33.83% (single 40.60%, multi 0.00%)
 - [ ] First QLoRA run on Colab/EC2
 - [ ] Merge → GGUF → Ollama, FastAPI service
 

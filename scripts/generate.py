@@ -75,7 +75,7 @@ def main() -> None:
             bnb_4bit_compute_dtype=dtype,
         )
     model = AutoModelForCausalLM.from_pretrained(
-        args.base_model, torch_dtype=dtype, quantization_config=quant, device_map={"": 0}
+        args.base_model, dtype=dtype, quantization_config=quant, device_map={"": 0}
     )
     if args.adapter:
         from peft import PeftModel
@@ -104,7 +104,7 @@ def main() -> None:
                 pad_token_id=tokenizer.pad_token_id,
             )
         new_tokens = gen[:, enc["input_ids"].shape[1] :]
-        texts = tokenizer.batch_decode(new_tokens, skip_special_tokens=True)
+        texts = tokenizer.batch_decode(new_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=False)
         for r, text in zip(batch, texts):
             outputs.append({**r, "prediction": text.strip()})
         print(f"{min(start + args.batch_size, len(rows))}/{len(rows)}", flush=True)

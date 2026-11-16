@@ -14,6 +14,7 @@ The final LoRA adapter + tokenizer are saved to <output_dir>/final.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import os
 import sys
 from pathlib import Path
@@ -21,7 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from text2sql.env import load_env  # noqa: E402
-from text2sql.config import apply_overrides, load_config  # noqa: E402
+from text2sql.config import ConfigError, adapt_training_args, apply_overrides, load_config  # noqa: E402
 from text2sql.data_loading import load_split, validate_dataset_ref  # noqa: E402
 from text2sql.prompt import build_prompt_completion  # noqa: E402
 
@@ -74,6 +75,22 @@ def main() -> None:
         if cfg["wandb"].get("entity"):
             os.environ.setdefault("WANDB_ENTITY", cfg["wandb"]["entity"])
 
+    # --- trainer config: built first so version mismatches fail before any download
+    sft_kwargs = {
+        **train_cfg,
+        "run_name": cfg.get("run_name"),
+        "seed": cfg.get("seed", 42),
+        "max_length": cfg["model"]["max_length"],
+        "completion_only_loss": True,
+    }
+    try:
+        sft_kwargs, notes = adapt_training_args(sft_kwargs, {f.name for f in dataclasses.fields(SFTConfig)})
+    except ConfigError as exc:
+        sys.exit(f"error: {exc}")
+    for note in notes:
+        print(f"[config] {note}")
+    sft_config = SFTConfig(**sft_kwargs)
+
     # --- data ---------------------------------------------------------------
     data = cfg["data"]
     train_limit = args.max_train_samples or data.get("max_train_samples")
@@ -99,7 +116,7 @@ def main() -> None:
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         quantization_config=bnb,
-        torch_dtype=getattr(torch, q["bnb_4bit_compute_dtype"]),
+        dtype=getattr(torch, q["bnb_4bit_compute_dtype"]),
         attn_implementation=cfg["model"].get("attn_implementation", "sdpa"),
         device_map={"": 0},
     )
@@ -113,14 +130,6 @@ def main() -> None:
         target_modules=lora["target_modules"],
         bias="none",
         task_type="CAUSAL_LM",
-    )
-
-    sft_config = SFTConfig(
-        **train_cfg,
-        run_name=cfg.get("run_name"),
-        seed=cfg.get("seed", 42),
-        max_length=cfg["model"]["max_length"],
-        completion_only_loss=True,
     )
 
     trainer = SFTTrainer(
