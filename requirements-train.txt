@@ -1,0 +1,9 @@
+# GPU training box only (Colab / EC2 g6.xlarge). Do NOT install on the local CPU PC.
+# Install the CUDA build of torch that matches the machine first, then:
+-r requirements.txt
+transformers>=4.46
+peft>=0.13
+trl>=0.12
+bitsandbytes>=0.44
+accelerate>=1.0
+wandb>=0.18
