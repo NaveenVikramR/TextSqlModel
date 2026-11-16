@@ -109,6 +109,8 @@ tests/             pytest unit tests
 ## Quickstart (CPU)
 
 ```bash
+git clone https://github.com/NaveenVikramR/TextSqlModel.git
+cd TextSqlModel
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env      # fill in HF_TOKEN / WANDB_API_KEY; scripts load it automatically
@@ -125,6 +127,9 @@ python scripts/evaluate.py --predictions outputs/preds.jsonl --report outputs/re
 ```
 
 ## Training and generation (GPU box)
+
+On Colab, open [`notebooks/colab_runner.ipynb`](https://colab.research.google.com/github/NaveenVikramR/TextSqlModel/blob/main/notebooks/colab_runner.ipynb)
+directly from GitHub. Elsewhere:
 
 ```bash
 pip install -r requirements-train.txt     # after installing the CUDA build of torch

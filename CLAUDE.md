@@ -27,7 +27,10 @@ Production-style Text-to-SQL fine-tuning project (portfolio). See README.md for 
 - Never commit data, checkpoints, GGUF files or W&B runs (see .gitignore). Data lives on the HF Hub.
 - Secrets live in a gitignored `.env` (names in `.env.example`: `HF_TOKEN`, `WANDB_API_KEY`, `GH_COLAB_TOKEN`).
   Scripts call `text2sql.env.load_env()` (override=False). **Never print or read secret values**; check
-  presence only. The GitHub repo (NaveenVikramR/TextSqlModel) is **public**.
+  presence only.
+- GitHub repo: **NaveenVikramR/TextSqlModel** (public; https://github.com/NaveenVikramR/TextSqlModel).
+  The local folder is named `textToSqlModel`, but the repo name is `TextSqlModel`; use the repo name in
+  docs, notebook and commands.
 - Colab notebook reads the same names from Colab Secrets via `get_secret()`, falling back to `getpass`.
 
 ## Code conventions
