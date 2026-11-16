@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from text2sql.env import load_env  # noqa: E402
 from text2sql.config import apply_overrides, load_config  # noqa: E402
-from text2sql.data_loading import load_split  # noqa: E402
+from text2sql.data_loading import load_split, validate_dataset_ref  # noqa: E402
 from text2sql.prompt import build_prompt_completion  # noqa: E402
 
 
@@ -50,6 +50,10 @@ def main() -> None:
     load_env()  # .env secrets (HF_TOKEN, WANDB_API_KEY); real env vars win
     args = parse_args()
     cfg = apply_overrides(load_config(args.config), args.set)
+    try:
+        validate_dataset_ref(cfg["data"]["dataset"])  # fail before importing torch / loading weights
+    except ValueError as exc:
+        sys.exit(f"error: {exc}")
 
     import torch
     from peft import LoraConfig
