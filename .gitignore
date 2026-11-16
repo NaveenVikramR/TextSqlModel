@@ -6,6 +6,8 @@ __pycache__/
 .venv/
 venv/
 .env
+.env.*
+!.env.example
 
 # Data & artifacts (data lives on the HF Hub, not in git)
 data/

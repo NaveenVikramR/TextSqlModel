@@ -22,6 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from text2sql.env import load_env  # noqa: E402
 from text2sql.data_loading import load_split  # noqa: E402
 from text2sql.jsonl import write_jsonl  # noqa: E402
 from text2sql.prompt import build_messages  # noqa: E402
@@ -42,6 +43,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    load_env()  # .env secrets (HF_TOKEN, WANDB_API_KEY); real env vars win
     args = parse_args()
 
     import torch

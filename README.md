@@ -111,12 +111,13 @@ tests/             pytest unit tests
 ```bash
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+cp .env.example .env      # fill in HF_TOKEN / WANDB_API_KEY; scripts load it automatically
 pytest
 
 # dry run on 2k rows without pushing
 python scripts/prepare_data.py --no-push --limit 2000
 
-# full run + push (needs `hf auth login` or HF_TOKEN)
+# full run + push (uses HF_TOKEN from .env or the environment)
 python scripts/prepare_data.py --hub-repo <hf-user>/sql-create-context-clean
 
 # score predictions (jsonl with context / answer / prediction)

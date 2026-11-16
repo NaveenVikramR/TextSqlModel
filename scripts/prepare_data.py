@@ -18,6 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from text2sql.env import load_env  # noqa: E402
 from text2sql.data_prep import clean_records, split_records  # noqa: E402
 from text2sql.jsonl import write_jsonl  # noqa: E402
 
@@ -41,6 +42,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    load_env()  # .env secrets (HF_TOKEN, WANDB_API_KEY); real env vars win
     args = parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     if not args.no_push and not args.hub_repo:
