@@ -30,7 +30,19 @@ def build_messages(question: str, schema: str, answer: str | None = None) -> lis
     return messages
 
 
-_FENCE_RE = re.compile(r"```(?:sql|sqlite)?\s*\n?(.*?)```", re.IGNORECASE | re.DOTALL)
+def build_prompt_completion(question: str, schema: str, answer: str) -> dict:
+    """TRL conversational prompt-completion example.
+
+    With this format SFTTrainer computes loss on the completion (the SQL) only, and
+    the prompt is rendered exactly as at inference (chat template + generation prompt).
+    """
+    return {
+        "prompt": build_messages(question, schema),
+        "completion": [{"role": "assistant", "content": answer.strip()}],
+    }
+
+
+_FENCE_RE =re.compile(r"```(?:sql|sqlite)?\s*\n?(.*?)```", re.IGNORECASE | re.DOTALL)
 
 
 def extract_sql(text: str | None) -> str:

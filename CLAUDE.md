@@ -9,8 +9,12 @@ Production-style Text-to-SQL fine-tuning project (portfolio). See README.md for 
   in an in-memory SQLite DB. Split with seed 42 into train / validation (500) / test (500).
   Push to the user's HF account as a **private** dataset.
 - **Base models**: `unsloth/Llama-3.2-3B-Instruct` first, then `Llama-3.1-8B-Instruct`.
-- **Metrics**: valid-SQL % (executes on the schema in SQLite) and normalized exact-match %.
-- **Training**: QLoRA driven by a YAML config in `configs/` (Axolotl or TRL, not decided yet), logged to Weights & Biases.
+- **Metrics**: valid-SQL % (a **read-only** query, SELECT / WITH ... SELECT, that executes on the schema in
+  SQLite) and normalized exact-match %. Normalization is final; don't change it without asking.
+- **Training**: TRL `SFTTrainer` + PEFT QLoRA, driven by `configs/qlora_llama32_3b.yaml` via `scripts/train.py`,
+  logged to Weights & Biases. Conversational prompt-completion format → loss on SQL only.
+- **Generation vs scoring**: `scripts/generate.py` (GPU) writes `predictions.jsonl`; `scripts/evaluate.py`
+  (CPU) scores it.
 - **Serving**: merge LoRA → convert to GGUF → run in Ollama → FastAPI endpoint in front.
 
 ## Hard constraints
@@ -25,11 +29,14 @@ Production-style Text-to-SQL fine-tuning project (portfolio). See README.md for 
 
 - Library code in `src/text2sql/`, thin CLIs in `scripts/` (they add `src` to `sys.path`).
 - Core modules (`sql_utils`, `prompt`, `data_prep`, `evaluate`, `jsonl`) are **stdlib-only**;
-  heavy imports (`datasets`, etc.) happen lazily inside scripts.
-- `src/text2sql/prompt.py` is the single source of truth for the prompt format. Training,
-  eval and serving must all use `build_messages` / `extract_sql`.
-- `sql_utils.check_sql` builds a fresh DB per call and denies ATTACH/DETACH/PRAGMA. The serving
-  layer gets user-supplied schemas and needs extra sandboxing (size limits, statement allow-list).
+  `config` needs PyYAML, `data_loading` imports `datasets` lazily. torch/transformers/trl/peft are
+  imported only inside `scripts/train.py` and `scripts/generate.py`.
+- `src/text2sql/prompt.py` is the single source of truth for the prompt format. Training
+  (`build_prompt_completion`), generation/serving (`build_messages`) and eval (`extract_sql`) all use it.
+  When building the Ollama Modelfile, its TEMPLATE must reproduce the Llama 3 chat template + this system prompt.
+- `sql_utils.check_sql(read_only=True)` (default) = prefix check (SELECT/WITH) + SQLite authorizer that only
+  allows read actions; it builds a fresh DB per call and always denies ATTACH/DETACH/PRAGMA. Serving should
+  reuse it, and still add input size limits for user-supplied schemas.
 
 ## Commands
 
@@ -38,12 +45,25 @@ pytest                                                    # unit tests (pythonpa
 python scripts/prepare_data.py --no-push --limit 2000     # quick data-prep dry run
 python scripts/prepare_data.py --hub-repo <user>/<name>   # full run + private push
 python scripts/evaluate.py --predictions preds.jsonl --report report.json
+# GPU box only:
+python scripts/train.py --config configs/qlora_llama32_3b.yaml [--max-train-samples 2000]
+python scripts/generate.py --dataset <repo-or-dir> --split test --adapter <dir> --output preds.jsonl
 ```
+
+Local venv: `.venv/` (Windows: `.venv\Scripts\python -m pytest`). Only `requirements.txt` is installed there.
 
 ## Status
 
 - [x] Repo scaffold, data-prep module + script, evaluation module + script, unit tests
-- [ ] Run data prep and push dataset
+- [x] Read-only valid-SQL check; TRL train script + YAML; GPU generate script (written, not yet run)
+- [x] 2,000-row data-prep dry run (`--no-push`)
+- [ ] Full data prep run and push private dataset
 - [ ] Baseline zero-shot eval of the base model
-- [ ] QLoRA training config + Colab/EC2 notebook
+- [ ] First QLoRA run on Colab/EC2 + Colab notebook
 - [ ] Merge → GGUF → Ollama, FastAPI service
+
+## TODO
+
+- **Execution accuracy**: populate each schema with random rows (type-aware generation, several seeds),
+  run gold and predicted SQL, and compare result sets (order-insensitive unless the gold has ORDER BY).
+  Catches semantically equivalent queries that exact-match misses.

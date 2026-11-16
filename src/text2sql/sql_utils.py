@@ -48,20 +48,61 @@ def build_sqlite_db(schema: str) -> sqlite3.Connection:
     return conn
 
 
-def check_sql(sql: str, schema: str, *, timeout_s: float = DEFAULT_TIMEOUT_S) -> ValidationResult:
+_COMMENT_RE = re.compile(r"--[^\n]*|/\*.*?\*/", re.DOTALL)
+_READ_ONLY_PREFIX_RE = re.compile(r"(select|with)\b", re.IGNORECASE)
+
+# Actions a read-only query may trigger while being prepared.
+_READ_ONLY_ACTIONS = {
+    sqlite3.SQLITE_SELECT,
+    sqlite3.SQLITE_READ,
+    sqlite3.SQLITE_FUNCTION,
+    sqlite3.SQLITE_RECURSIVE,
+}
+
+
+def _read_only_authorizer(action: int, *_args) -> int:
+    return sqlite3.SQLITE_OK if action in _READ_ONLY_ACTIONS else sqlite3.SQLITE_DENY
+
+
+def is_read_only_sql(sql: str | None) -> bool:
+    """Cheap textual check: the statement starts with SELECT or WITH (after comments).
+
+    This is a first gate only. `check_sql(..., read_only=True)` also installs an SQLite
+    authorizer that denies any write, which catches e.g. `WITH x AS (...) DELETE ...`.
+    """
+    if not sql:
+        return False
+    stripped = _COMMENT_RE.sub(" ", sql).lstrip()
+    return bool(_READ_ONLY_PREFIX_RE.match(stripped))
+
+
+def check_sql(
+    sql: str,
+    schema: str,
+    *,
+    read_only: bool = True,
+    timeout_s: float = DEFAULT_TIMEOUT_S,
+) -> ValidationResult:
     """Return whether `sql` is a single statement that executes against `schema`.
 
-    A fresh DB is built per call, so statements that mutate data can't leak between
-    checks. Tables are empty, so this measures "parses and binds against the schema",
-    not result correctness.
+    With `read_only=True` (the default, used for metrics and serving) only SELECT /
+    WITH ... SELECT queries pass: anything else fails the prefix check, and any write
+    action is denied by the SQLite authorizer at prepare time.
+
+    A fresh DB is built per call, so nothing can leak between checks. Tables are empty,
+    so this measures "parses and binds against the schema", not result correctness.
     """
     if sql is None or not sql.strip():
         return ValidationResult(False, "empty SQL")
+    if read_only and not is_read_only_sql(sql):
+        return ValidationResult(False, "not a read-only query (must start with SELECT or WITH)")
     try:
         conn = build_sqlite_db(schema)
     except SchemaError as exc:
         return ValidationResult(False, f"schema error: {exc}")
 
+    if read_only:
+        conn.set_authorizer(_read_only_authorizer)
     deadline = time.monotonic() + timeout_s
     conn.set_progress_handler(lambda: int(time.monotonic() > deadline), 1000)
     try:
@@ -78,8 +119,29 @@ def check_sql(sql: str, schema: str, *, timeout_s: float = DEFAULT_TIMEOUT_S) ->
         conn.close()
 
 
-def is_valid_sql(sql: str, schema: str, *, timeout_s: float = DEFAULT_TIMEOUT_S) -> bool:
-    return check_sql(sql, schema, timeout_s=timeout_s).valid
+_CREATE_TABLE_RE = re.compile(r"\bcreate\s+(?:temp(?:orary)?\s+)?table\b", re.IGNORECASE)
+
+
+def count_tables(schema: str | None) -> int:
+    """Number of CREATE TABLE statements in a schema string."""
+    return len(_CREATE_TABLE_RE.findall(schema or ""))
+
+
+def error_kind(message: str) -> str:
+    """Collapse an SQLite error message into a category for statistics,
+    e.g. 'no such column: foo' -> 'no such column'."""
+    message = message.strip()
+    if re.fullmatch(r"table \S+ already exists", message):
+        return "table already exists"
+    if message.startswith("near ") or message.startswith("incomplete input"):
+        return "syntax error"
+    return message.split(":", 1)[0].strip()
+
+
+def is_valid_sql(
+    sql: str, schema: str, *, read_only: bool = True, timeout_s: float = DEFAULT_TIMEOUT_S
+) -> bool:
+    return check_sql(sql, schema, read_only=read_only, timeout_s=timeout_s).valid
 
 
 # --- normalization -----------------------------------------------------------

@@ -64,10 +64,21 @@ def main() -> None:
         write_jsonl(out_dir / f"{name}.jsonl", rows)
         log.info("wrote %s: %d rows", name, len(rows))
 
+    table_counts = {
+        name: {
+            "single_table": sum(r["num_tables"] <= 1 for r in rows),
+            "multi_table": sum(r["num_tables"] > 1 for r in rows),
+        }
+        for name, rows in splits.items()
+    }
+    log.info("table counts per split: %s", table_counts)
+
     meta = {
         "source": args.dataset_id,
         "seed": args.seed,
+        "limit": args.limit,
         "split_sizes": {k: len(v) for k, v in splits.items()},
+        "table_counts": table_counts,
         "cleaning": stats.to_dict(),
     }
     (out_dir / "stats.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")

@@ -1,4 +1,4 @@
-from text2sql.prompt import SYSTEM_PROMPT, build_messages, extract_sql
+from text2sql.prompt import SYSTEM_PROMPT, build_messages, build_prompt_completion, extract_sql
 
 
 def test_build_messages_inference():
@@ -11,6 +11,12 @@ def test_build_messages_inference():
 def test_build_messages_training():
     msgs = build_messages("q", "s", answer=" SELECT 1 ")
     assert msgs[-1] == {"role": "assistant", "content": "SELECT 1"}
+
+
+def test_build_prompt_completion_matches_inference_prompt():
+    ex = build_prompt_completion("q", "s", " SELECT 1 ")
+    assert ex["prompt"] == build_messages("q", "s")
+    assert ex["completion"] == [{"role": "assistant", "content": "SELECT 1"}]
 
 
 def test_extract_sql():

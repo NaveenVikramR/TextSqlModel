@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import logging
 import random
-from dataclasses import asdict, dataclass
+from collections import Counter
+from dataclasses import asdict, dataclass, field
 from typing import Iterable
 
-from .sql_utils import DEFAULT_TIMEOUT_S, SchemaError, build_sqlite_db, check_sql
+from .sql_utils import DEFAULT_TIMEOUT_S, SchemaError, build_sqlite_db, check_sql, count_tables, error_kind
 
 log = logging.getLogger(__name__)
 
@@ -26,9 +27,21 @@ class CleanStats:
     dropped_bad_schema: int = 0
     dropped_invalid_sql: int = 0
     kept: int = 0
+    # error category -> count, and one example row per category (for documentation)
+    schema_error_kinds: Counter = field(default_factory=Counter)
+    sql_error_kinds: Counter = field(default_factory=Counter)
+    examples: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        d["schema_error_kinds"] = dict(self.schema_error_kinds.most_common())
+        d["sql_error_kinds"] = dict(self.sql_error_kinds.most_common())
+        return d
+
+    def _record(self, counter: Counter, prefix: str, message: str, rec: dict) -> None:
+        kind = error_kind(message)
+        counter[kind] += 1
+        self.examples.setdefault(f"{prefix}: {kind}", {**rec, "error": message})
 
 
 def strip_record(record: dict) -> dict:
@@ -63,14 +76,18 @@ def clean_records(
 
         try:
             build_sqlite_db(rec["context"]).close()
-        except SchemaError:
+        except SchemaError as exc:
             stats.dropped_bad_schema += 1
+            stats._record(stats.schema_error_kinds, "schema", str(exc), rec)
             continue
 
-        if not check_sql(rec["answer"], rec["context"], timeout_s=timeout_s).valid:
+        result = check_sql(rec["answer"], rec["context"], timeout_s=timeout_s)
+        if not result.valid:
             stats.dropped_invalid_sql += 1
+            stats._record(stats.sql_error_kinds, "sql", result.error, rec)
             continue
 
+        rec["num_tables"] = count_tables(rec["context"])
         kept.append(rec)
         if log_every and i % log_every == 0:
             log.info("processed %d rows, kept %d", i, len(kept))

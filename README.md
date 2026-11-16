@@ -23,8 +23,9 @@ training, evaluation, and serving via GGUF + Ollama behind a FastAPI endpoint.
 
 ## Metrics
 
-- **Valid-SQL %**: the predicted query runs as a single statement against the schema in
-  SQLite (tables are empty, so this checks syntax and schema binding, not results).
+- **Valid-SQL %**: the predicted query is a single read-only statement (SELECT / WITH ... SELECT)
+  that runs against the schema in SQLite. Writes are rejected by a prefix check and an SQLite
+  authorizer. Tables are empty, so this checks syntax and schema binding, not results.
 - **Exact-match %**: predicted and gold SQL are equal after normalization (lowercase outside
   string literals, unified quote style, whitespace and trailing `;` removed, `<>` → `!=`).
 
@@ -54,6 +55,18 @@ python scripts/prepare_data.py --hub-repo <hf-user>/sql-create-context-clean
 # score predictions (jsonl with context / answer / prediction)
 python scripts/evaluate.py --predictions outputs/preds.jsonl --report outputs/report.json
 ```
+
+## Training and generation (GPU box)
+
+```bash
+pip install -r requirements-train.txt     # after installing the CUDA build of torch
+wandb login && hf auth login
+python scripts/train.py --config configs/qlora_llama32_3b.yaml
+python scripts/generate.py --dataset <hf-user>/sql-create-context-clean --split test \
+    --adapter outputs/llama32-3b-qlora-r16/final --output outputs/preds_qlora.jsonl
+```
+
+Copy the predictions file back and score it on CPU with `scripts/evaluate.py`.
 
 ## Results
 

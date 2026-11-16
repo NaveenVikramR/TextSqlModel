@@ -3,7 +3,7 @@
 -r requirements.txt
 transformers>=4.46
 peft>=0.13
-trl>=0.12
+trl>=0.20  # conversational prompt-completion + completion_only_loss, SFTConfig.max_length
 bitsandbytes>=0.44
 accelerate>=1.0
 wandb>=0.18

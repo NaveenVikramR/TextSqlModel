@@ -12,7 +12,30 @@ def row(q="How many heads are older than 56?", ctx=SCHEMA, ans="SELECT COUNT(*) 
 class TestCleanRecords:
     def test_strips_fields(self):
         kept, _ = clean_records([row(q="  Q?  ", ctx=f"\n{SCHEMA} ", ans=" SELECT age FROM head \n")])
-        assert kept == [{"question": "Q?", "context": SCHEMA, "answer": "SELECT age FROM head"}]
+        assert kept == [{"question": "Q?", "context": SCHEMA, "answer": "SELECT age FROM head", "num_tables": 1}]
+
+    def test_num_tables_added(self):
+        multi = "CREATE TABLE a (x INT); CREATE TABLE b (x INT, y INT); CREATE TABLE c (z INT)"
+        kept, _ = clean_records([row(), row(q="j", ctx=multi, ans="SELECT a.x FROM a JOIN b ON a.x = b.x")])
+        assert [r["num_tables"] for r in kept] == [1, 3]
+
+    def test_error_kinds_and_examples_recorded(self):
+        dup_table = "CREATE TABLE t (a INT); CREATE TABLE t (a INT, b INT)"
+        records = [
+            row(q="1", ctx=dup_table, ans="SELECT a FROM t"),
+            row(q="2", ctx="CREATE TABLE t (id INT, ID INT)", ans="SELECT id FROM t"),
+            row(q="3", ans="SELECT salary FROM head"),
+            row(q="4", ans="SELECT bonus FROM head"),
+        ]
+        _, stats = clean_records(records)
+        assert stats.schema_error_kinds == {"table already exists": 1, "duplicate column name": 1}
+        assert stats.sql_error_kinds == {"no such column": 2}
+        assert stats.examples["sql: no such column"]["question"] == "3"  # first one kept
+        assert set(stats.examples) == {
+            "schema: table already exists", "schema: duplicate column name", "sql: no such column"
+        }
+        d = stats.to_dict()
+        assert d["sql_error_kinds"] == {"no such column": 2}
 
     def test_drops_empty_and_missing(self):
         kept, stats = clean_records([row(q="   "), {"question": "q", "context": SCHEMA}, row(ans=None)])

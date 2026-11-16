@@ -4,7 +4,10 @@ from text2sql.sql_utils import (
     SchemaError,
     build_sqlite_db,
     check_sql,
+    count_tables,
+    error_kind,
     exact_match,
+    is_read_only_sql,
     is_valid_sql,
     normalize_sql,
 )
@@ -61,14 +64,111 @@ class TestCheckSql:
         res = check_sql(sql, SCHEMA, timeout_s=0.2)
         assert not res.valid and "timed out" in res.error
 
-    def test_attach_denied_in_query(self, tmp_path):
+    def test_attach_denied_even_when_writes_allowed(self, tmp_path):
         target = tmp_path / "x.db"
-        assert not is_valid_sql(f"ATTACH DATABASE '{target}' AS x", SCHEMA)
+        assert not is_valid_sql(f"ATTACH DATABASE '{target}' AS x", SCHEMA, read_only=False)
         assert not target.exists()
 
     def test_mutation_does_not_leak_between_checks(self):
-        assert is_valid_sql("DROP TABLE head", SCHEMA)
+        assert is_valid_sql("DROP TABLE head", SCHEMA, read_only=False)
         assert is_valid_sql("SELECT age FROM head", SCHEMA)
+
+
+class TestReadOnly:
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "SELECT age FROM head",
+            "  select age from head",
+            "WITH old AS (SELECT * FROM head WHERE age > 50) SELECT COUNT(*) FROM old",
+            "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 5) SELECT x FROM c",
+            "-- comment\nSELECT age FROM head",
+            "/* block */ SELECT age FROM head",
+            "SELECT MAX(age), LOWER(name) FROM head",
+        ],
+    )
+    def test_read_queries_pass(self, sql):
+        assert is_valid_sql(sql, SCHEMA)
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "DROP TABLE head",
+            "DELETE FROM head",
+            "INSERT INTO head VALUES (1, 'a', 'b')",
+            "UPDATE head SET age = 1",
+            "CREATE TABLE x (a INT)",
+            "PRAGMA table_info(head)",
+            "VACUUM",
+            "VALUES (1)",
+            "selectx FROM head",
+        ],
+    )
+    def test_non_select_rejected_by_prefix(self, sql):
+        res = check_sql(sql, SCHEMA)
+        assert not res.valid and "read-only" in res.error
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "WITH x AS (SELECT 1) DELETE FROM head",
+            "WITH x AS (SELECT 1) INSERT INTO head SELECT 1, 'a', 'b' FROM x",
+            "WITH x AS (SELECT 1) UPDATE head SET age = 2",
+        ],
+    )
+    def test_cte_writes_rejected_by_authorizer(self, sql):
+        assert is_valid_sql(sql, SCHEMA, read_only=False)  # sanity: valid SQL otherwise
+        res = check_sql(sql, SCHEMA)
+        assert not res.valid and "not authorized" in res.error
+
+    def test_pragma_table_function_rejected(self):
+        assert not is_valid_sql("SELECT * FROM pragma_table_info('head')", SCHEMA)
+
+    def test_write_allowed_when_flag_off(self):
+        assert is_valid_sql("DELETE FROM head", SCHEMA, read_only=False)
+
+    @pytest.mark.parametrize(
+        "sql,expected",
+        [
+            ("SELECT 1", True),
+            ("with a as (select 1) select * from a", True),
+            ("\n -- c\n /* d */ SELECT 1", True),
+            ("DELETE FROM t", False),
+            ("", False),
+            (None, False),
+        ],
+    )
+    def test_is_read_only_sql(self, sql, expected):
+        assert is_read_only_sql(sql) is expected
+
+
+class TestHelpers:
+    @pytest.mark.parametrize(
+        "schema,n",
+        [
+            (SCHEMA, 1),
+            (MULTI_SCHEMA, 2),
+            ("create table a (x int);CREATE   TABLE b (y int); CREATE TEMP TABLE c (z int)", 3),
+            ("", 0),
+            (None, 0),
+        ],
+    )
+    def test_count_tables(self, schema, n):
+        assert count_tables(schema) == n
+
+    @pytest.mark.parametrize(
+        "msg,kind",
+        [
+            ("table station already exists", "table already exists"),
+            ("duplicate column name: Editor_ID", "duplicate column name"),
+            ("no such column: catalog_level_number", "no such column"),
+            ("ambiguous column name: document_id", "ambiguous column name"),
+            ('near "SELEC": syntax error', "syntax error"),
+            ("incomplete input", "syntax error"),
+        ],
+    )
+    def test_error_kind(self, msg, kind):
+        assert error_kind(msg) == kind
 
 
 class TestBuildDb:

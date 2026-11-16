@@ -30,7 +30,11 @@ def main() -> None:
     args = p.parse_args()
 
     result = evaluate_predictions(read_jsonl(args.predictions), pred_key=args.pred_key, timeout_s=args.timeout)
-    print(f"n={result['n']}  valid_sql={result['valid_sql_pct']}%  exact_match={result['exact_match_pct']}%")
+    rows = [("overall", result)] + list(result["by_table_count"].items())
+    print(f"{'group':<14}{'n':>6}{'valid_sql %':>14}{'exact_match %':>16}")
+    for name, m in rows:
+        fmt = lambda v: "-" if v is None else f"{v:.2f}"  # noqa: E731
+        print(f"{name:<14}{m['n']:>6}{fmt(m['valid_sql_pct']):>14}{fmt(m['exact_match_pct']):>16}")
 
     if args.report:
         Path(args.report).parent.mkdir(parents=True, exist_ok=True)
