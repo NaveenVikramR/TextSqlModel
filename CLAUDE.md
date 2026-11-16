@@ -57,10 +57,19 @@ Local venv: `.venv/` (Windows: `.venv\Scripts\python -m pytest`). Only `requirem
 - [x] Repo scaffold, data-prep module + script, evaluation module + script, unit tests
 - [x] Read-only valid-SQL check; TRL train script + YAML; GPU generate script (written, not yet run)
 - [x] 2,000-row data-prep dry run (`--no-push`)
-- [ ] Full data prep run and push private dataset
+- [x] Full data prep run (`--no-push`): 76,909 / 78,577 kept; drop reasons documented in README "Data quality"
+- [x] `num_tables` per row; eval reports single- vs multi-table
+- [x] `notebooks/colab_runner.ipynb` (clone → install → login → baseline → smoke train → adapter preds → download)
+- [ ] Push private dataset to the Hub (needed before the Colab notebook can run)
 - [ ] Baseline zero-shot eval of the base model
-- [ ] First QLoRA run on Colab/EC2 + Colab notebook
+- [ ] First QLoRA run on Colab/EC2
 - [ ] Merge → GGUF → Ollama, FastAPI service
+
+## Data facts
+
+- Duplicate-table schemas and other flawed rows are **dropped, never repaired** (user decision).
+- Multi-table schemas are only ~2.2% of the data: test has 7, validation 14, train 1,639.
+  Multi-table metrics on the test split are noisy.
 
 ## TODO
 
