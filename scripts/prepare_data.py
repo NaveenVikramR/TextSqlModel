@@ -30,8 +30,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--hub-repo", help="Target HF dataset repo, e.g. user/sql-create-context-clean")
     p.add_argument("--no-push", action="store_true", help="Skip pushing to the Hugging Face Hub")
     p.add_argument("--out-dir", default="data/processed")
-    p.add_argument("--val-size", type=int, default=500)
-    p.add_argument("--test-size", type=int, default=500)
+    p.add_argument("--test-single", type=int, default=500, help="Single-table rows in test")
+    p.add_argument("--test-multi", type=int, default=100, help="Multi-table rows in test")
+    p.add_argument("--val-single", type=int, default=500, help="Single-table rows in validation")
+    p.add_argument("--val-multi", type=int, default=100, help="Multi-table rows in validation")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--limit", type=int, help="Only process the first N raw rows (debugging)")
     p.add_argument("--timeout", type=float, default=2.0, help="Per-query SQLite timeout (s)")
@@ -57,7 +59,12 @@ def main() -> None:
     records, stats = clean_records(raw, timeout_s=args.timeout)
     log.info("cleaning stats: %s", stats.to_dict())
 
-    splits = split_records(records, val_size=args.val_size, test_size=args.test_size, seed=args.seed)
+    splits = split_records(
+        records,
+        test_sizes={"single_table": args.test_single, "multi_table": args.test_multi},
+        val_sizes={"single_table": args.val_single, "multi_table": args.val_multi},
+        seed=args.seed,
+    )
 
     out_dir = Path(args.out_dir)
     for name, rows in splits.items():
@@ -77,6 +84,7 @@ def main() -> None:
         "source": args.dataset_id,
         "seed": args.seed,
         "limit": args.limit,
+        "stratified_by": "num_tables (single_table: 1, multi_table: >1)",
         "split_sizes": {k: len(v) for k, v in splits.items()},
         "table_counts": table_counts,
         "cleaning": stats.to_dict(),

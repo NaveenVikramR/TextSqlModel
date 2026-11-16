@@ -4,13 +4,25 @@ Fine-tune a small open LLM to translate natural-language questions into SQLite q
 given a `CREATE TABLE` schema. The project covers the full path: data cleaning, QLoRA
 training, evaluation, and serving via GGUF + Ollama behind a FastAPI endpoint.
 
+## Notable findings
+
+- **The source dataset corrupts numbers with thousands separators.** Executing every gold query
+  in SQLite showed that 564 queries contain a stray `OFFSET` clause. A filter like
+  `attendance < 46,735` was split on the comma during conversion and became
+  `attendance < 46 OFFSET 735`. Those queries are syntax errors in SQLite. In engines that accept
+  `OFFSET` without `LIMIT`, they would quietly mean something else. These rows are dropped, along
+  with about 1,100 other rows whose schema or SQL doesn't execute (see [Data quality](#data-quality)).
+- **Multi-table questions are rare (about 2%)**, so a plain random 500-row test split would hold
+  only about 7 of them. The splits are stratified to reserve 100 multi-table examples each for test
+  and validation.
+
 ## Pipeline
 
 | Stage | Where it runs | What it does |
 |---|---|---|
 | Data prep | CPU | Clean [`b-mc2/sql-create-context`](https://huggingface.co/datasets/b-mc2/sql-create-context), split, push to a private HF dataset |
 | Training | GPU (Colab / EC2 g6.xlarge) | QLoRA on `unsloth/Llama-3.2-3B-Instruct` (later Llama-3.1-8B-Instruct), YAML config, logged to W&B |
-| Evaluation | CPU | Valid-SQL % and normalized exact-match % on the 500-row test split |
+| Evaluation | CPU | Valid-SQL % and normalized exact-match % on the 600-row test split, overall and single- vs multi-table |
 | Serving | CPU | Merged model → GGUF → Ollama, behind FastAPI |
 
 ## Data cleaning
@@ -19,7 +31,9 @@ training, evaluation, and serving via GGUF + Ollama behind a FastAPI endpoint.
 2. Deduplicate on `(question, context)`, keeping the first occurrence.
 3. Load each `context` into an in-memory SQLite DB; drop rows whose schema fails to load
    or whose `answer` SQL fails to execute.
-4. Shuffle with seed 42 → test (500), validation (500), train (rest).
+4. Add `num_tables` (number of `CREATE TABLE` statements) to each row.
+5. Split with seed 42, stratified by table count: test = 500 single-table + 100 multi-table,
+   validation = 500 single-table + 100 multi-table, train = the rest.
 
 ## Data quality
 
@@ -59,15 +73,18 @@ guaranteed to execute against its own schema.
 The duplicate-table/column flaws come from the Spider-derived rows (multi-table, named schemas); the
 reserved-word and syntax flaws almost all come from the WikiSQL-derived rows (`table_<id>` names).
 
-**Split composition.** Multi-table schemas are rare (2.2% of the cleaned data), so the 500-row test
-split contains only 7 multi-table examples (validation: 14, train: 1,639). Treat multi-table metrics
-on the test split as indicative only.
+**Split composition.** Multi-table schemas are rare (1,660 rows, 2.2% of the cleaned data). A plain
+random split put only 7 of them in a 500-row test set, so the split is stratified by table count
+and reserves 100 multi-table rows each for test and validation. This makes the eval splits
+over-represent multi-table questions (16.7% vs 1.9% in train), so compare the **single-table** and
+**multi-table** metrics separately rather than reading the overall number as representative of
+the training distribution.
 
 | Split | Rows | Single-table | Multi-table |
 |---|---:|---:|---:|
-| train | 75,909 | 74,270 | 1,639 |
-| validation | 500 | 486 | 14 |
-| test | 500 | 493 | 7 |
+| train | 75,709 | 74,249 | 1,460 |
+| validation | 600 | 500 | 100 |
+| test | 600 | 500 | 100 |
 
 ## Metrics
 

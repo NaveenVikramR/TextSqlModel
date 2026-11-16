@@ -6,7 +6,8 @@ Production-style Text-to-SQL fine-tuning project (portfolio). See README.md for 
 
 - **Dataset**: `b-mc2/sql-create-context` (fields: `question`, `context` = CREATE TABLE statements, `answer` = SQL).
   Clean: strip fields, drop empties, dedupe on (question, context), drop rows whose schema or SQL fails
-  in an in-memory SQLite DB. Split with seed 42 into train / validation (500) / test (500).
+  in an in-memory SQLite DB. Add `num_tables`. Split with seed 42, stratified by table count:
+  test = 500 single + 100 multi, validation = 500 single + 100 multi, train = rest.
   Push to the user's HF account as a **private** dataset.
 - **Base models**: `unsloth/Llama-3.2-3B-Instruct` first, then `Llama-3.1-8B-Instruct`.
 - **Metrics**: valid-SQL % (a **read-only** query, SELECT / WITH ... SELECT, that executes on the schema in
@@ -68,8 +69,9 @@ Local venv: `.venv/` (Windows: `.venv\Scripts\python -m pytest`). Only `requirem
 ## Data facts
 
 - Duplicate-table schemas and other flawed rows are **dropped, never repaired** (user decision).
-- Multi-table schemas are only ~2.2% of the data: test has 7, validation 14, train 1,639.
-  Multi-table metrics on the test split are noisy.
+- Multi-table schemas are only ~2.2% of the data (1,660 rows), so splits are stratified:
+  test/validation = 500 single + 100 multi each, train = 74,249 single + 1,460 multi.
+  Eval splits over-represent multi-table; always report the two groups separately.
 
 ## TODO
 

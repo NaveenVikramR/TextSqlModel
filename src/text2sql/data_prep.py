@@ -12,7 +12,16 @@ from collections import Counter
 from dataclasses import asdict, dataclass, field
 from typing import Iterable
 
-from .sql_utils import DEFAULT_TIMEOUT_S, SchemaError, build_sqlite_db, check_sql, count_tables, error_kind
+from .sql_utils import (
+    DEFAULT_TIMEOUT_S,
+    TABLE_GROUPS,
+    SchemaError,
+    build_sqlite_db,
+    check_sql,
+    count_tables,
+    error_kind,
+    table_group,
+)
 
 log = logging.getLogger(__name__)
 
@@ -96,24 +105,51 @@ def clean_records(
     return kept, stats
 
 
+DEFAULT_TEST_SIZES = {"single_table": 500, "multi_table": 100}
+DEFAULT_VAL_SIZES = {"single_table": 500, "multi_table": 100}
+
+
 def split_records(
     records: list[dict],
     *,
-    val_size: int = 500,
-    test_size: int = 500,
+    test_sizes: dict[str, int] = DEFAULT_TEST_SIZES,
+    val_sizes: dict[str, int] = DEFAULT_VAL_SIZES,
     seed: int = 42,
 ) -> dict[str, list[dict]]:
-    """Deterministic shuffle-then-slice split into train/validation/test."""
-    if val_size < 0 or test_size < 0:
+    """Deterministic split stratified by table count.
+
+    Records are grouped into single_table / multi_table (via `num_tables`, counted from
+    the schema if absent). Within each group, rows are shuffled and the first
+    `test_sizes[group]` go to test, the next `val_sizes[group]` to validation, and the
+    rest to train. Each split is then shuffled so groups are interleaved.
+    Multi-table rows are rare (~2%), so reserving a fixed count gives the eval splits
+    enough of them to report a meaningful multi-table metric.
+    """
+    unknown = (set(test_sizes) | set(val_sizes)) - set(TABLE_GROUPS)
+    if unknown:
+        raise ValueError(f"unknown groups {sorted(unknown)}; expected {TABLE_GROUPS}")
+    if any(v < 0 for v in [*test_sizes.values(), *val_sizes.values()]):
         raise ValueError("split sizes must be non-negative")
-    if val_size + test_size >= len(records):
-        raise ValueError(
-            f"need more than {val_size + test_size} records for the split, got {len(records)}"
-        )
-    shuffled = list(records)
-    random.Random(seed).shuffle(shuffled)
-    return {
-        "test": shuffled[:test_size],
-        "validation": shuffled[test_size : test_size + val_size],
-        "train": shuffled[test_size + val_size :],
-    }
+
+    groups: dict[str, list[dict]] = {g: [] for g in TABLE_GROUPS}
+    for rec in records:
+        n = rec.get("num_tables")
+        groups[table_group(count_tables(rec["context"]) if n is None else n)].append(rec)
+
+    rng = random.Random(seed)
+    splits: dict[str, list[dict]] = {"test": [], "validation": [], "train": []}
+    for group in TABLE_GROUPS:  # fixed order -> deterministic
+        rows = list(groups[group])
+        n_test, n_val = test_sizes.get(group, 0), val_sizes.get(group, 0)
+        if n_test + n_val > len(rows):
+            raise ValueError(
+                f"group '{group}' has {len(rows)} records, need {n_test + n_val} for test + validation"
+            )
+        rng.shuffle(rows)
+        splits["test"] += rows[:n_test]
+        splits["validation"] += rows[n_test : n_test + n_val]
+        splits["train"] += rows[n_test + n_val :]
+
+    for rows in splits.values():
+        rng.shuffle(rows)
+    return splits

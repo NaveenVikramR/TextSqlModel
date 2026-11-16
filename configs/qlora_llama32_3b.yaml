@@ -30,7 +30,7 @@ data:
   train_split: train
   eval_split: validation
   max_train_samples: null     # set e.g. 2000 for a smoke test
-  max_eval_samples: 500
+  max_eval_samples: null      # full 600-row validation split (500 single + 100 multi-table)
 
 wandb:
   project: text2sql

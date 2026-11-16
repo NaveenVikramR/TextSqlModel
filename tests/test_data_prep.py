@@ -70,30 +70,80 @@ class TestCleanRecords:
         assert stats.total == stats.kept + dropped
 
 
-class TestSplit:
-    records = [{"question": f"q{i}", "context": SCHEMA, "answer": "SELECT age FROM head"} for i in range(50)]
+MULTI_SCHEMA = "CREATE TABLE a (x INT); CREATE TABLE b (x INT)"
 
-    def test_sizes(self):
-        s = split_records(self.records, val_size=5, test_size=7, seed=42)
-        assert (len(s["train"]), len(s["validation"]), len(s["test"])) == (38, 5, 7)
+
+def make_records(n_single, n_multi, with_num_tables=True):
+    recs = [{"question": f"s{i}", "context": SCHEMA, "answer": "SELECT age FROM head", "num_tables": 1}
+            for i in range(n_single)]
+    recs += [{"question": f"m{i}", "context": MULTI_SCHEMA, "answer": "SELECT x FROM a", "num_tables": 2}
+             for i in range(n_multi)]
+    if not with_num_tables:
+        for r in recs:
+            del r["num_tables"]
+    return recs
+
+
+SIZES = dict(test_sizes={"single_table": 10, "multi_table": 3}, val_sizes={"single_table": 8, "multi_table": 2})
+
+
+def groups(rows):
+    return (sum(r["num_tables"] == 1 for r in rows), sum(r["num_tables"] > 1 for r in rows))
+
+
+class TestSplit:
+    records = make_records(60, 9)
+
+    def test_stratified_sizes(self):
+        s = split_records(self.records, **SIZES)
+        assert groups(s["test"]) == (10, 3)
+        assert groups(s["validation"]) == (8, 2)
+        assert groups(s["train"]) == (42, 4)
+
+    def test_default_sizes(self):
+        s = split_records(make_records(1300, 250))
+        assert groups(s["test"]) == (500, 100)
+        assert groups(s["validation"]) == (500, 100)
+        assert groups(s["train"]) == (300, 50)
+
+    def test_num_tables_counted_when_missing(self):
+        recs = make_records(30, 6, with_num_tables=False)
+        s = split_records(recs, **SIZES)
+        assert sum(r["context"] == MULTI_SCHEMA for r in s["test"]) == 3
+        assert sum(r["context"] == MULTI_SCHEMA for r in s["validation"]) == 2
 
     def test_disjoint_and_complete(self):
-        s = split_records(self.records, val_size=5, test_size=7)
+        s = split_records(self.records, **SIZES)
         qs = [r["question"] for part in s.values() for r in part]
         assert sorted(qs) == sorted(r["question"] for r in self.records)
         assert len(set(qs)) == len(qs)
 
+    def test_groups_interleaved(self):
+        s = split_records(self.records, **SIZES)
+        kinds = [r["num_tables"] > 1 for r in s["test"]]
+        assert kinds != sorted(kinds) and kinds != sorted(kinds, reverse=True)
+
     def test_deterministic(self):
-        a = split_records(self.records, val_size=5, test_size=5, seed=42)
-        b = split_records(self.records, val_size=5, test_size=5, seed=42)
-        c = split_records(self.records, val_size=5, test_size=5, seed=7)
+        a = split_records(self.records, **SIZES, seed=42)
+        b = split_records(self.records, **SIZES, seed=42)
+        c = split_records(self.records, **SIZES, seed=7)
         assert a == b and a != c
 
     def test_does_not_mutate_input(self):
-        before = list(self.records)
-        split_records(self.records, val_size=5, test_size=5)
+        before = [dict(r) for r in self.records]
+        split_records(self.records, **SIZES)
         assert self.records == before
 
-    def test_too_few_records(self):
-        with pytest.raises(ValueError):
-            split_records(self.records[:10], val_size=5, test_size=5)
+    def test_group_too_small(self):
+        with pytest.raises(ValueError, match="multi_table"):
+            split_records(make_records(60, 4), **SIZES)
+
+    def test_exactly_enough_leaves_train_without_group(self):
+        s = split_records(make_records(60, 5), **SIZES)
+        assert groups(s["train"])[1] == 0
+
+    def test_bad_args(self):
+        with pytest.raises(ValueError, match="unknown"):
+            split_records(self.records, test_sizes={"three_table": 1}, val_sizes={})
+        with pytest.raises(ValueError, match="non-negative"):
+            split_records(self.records, test_sizes={"single_table": -1}, val_sizes={})

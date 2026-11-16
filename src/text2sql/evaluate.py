@@ -10,13 +10,7 @@ from __future__ import annotations
 from typing import Iterable
 
 from .prompt import extract_sql
-from .sql_utils import DEFAULT_TIMEOUT_S, check_sql, count_tables, exact_match
-
-GROUPS = ("single_table", "multi_table")
-
-
-def table_group(num_tables: int) -> str:
-    return "multi_table" if num_tables > 1 else "single_table"
+from .sql_utils import TABLE_GROUPS, DEFAULT_TIMEOUT_S, check_sql, count_tables, exact_match, table_group
 
 
 def _aggregate(rows: list[dict]) -> dict:
@@ -73,6 +67,6 @@ def evaluate_predictions(
 
     return {
         **_aggregate(per_example),
-        "by_table_count": {g: _aggregate([r for r in per_example if r["group"] == g]) for g in GROUPS},
+        "by_table_count": {g: _aggregate([r for r in per_example if r["group"] == g]) for g in TABLE_GROUPS},
         "per_example": per_example,
     }

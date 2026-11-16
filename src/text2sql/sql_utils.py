@@ -127,6 +127,14 @@ def count_tables(schema: str | None) -> int:
     return len(_CREATE_TABLE_RE.findall(schema or ""))
 
 
+TABLE_GROUPS = ("single_table", "multi_table")
+
+
+def table_group(num_tables: int) -> str:
+    """Bucket used for stratified splitting and per-group metrics."""
+    return "multi_table" if num_tables > 1 else "single_table"
+
+
 def error_kind(message: str) -> str:
     """Collapse an SQLite error message into a category for statistics,
     e.g. 'no such column: foo' -> 'no such column'."""
